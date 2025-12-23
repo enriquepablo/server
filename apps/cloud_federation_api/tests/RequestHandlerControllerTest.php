@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace OCA\CloudFederationApi\Tests;
 
+use OC\OCM\OCMSignatoryManager;
 use OCA\CloudFederationAPI\Config;
 use OCA\CloudFederationAPI\Controller\RequestHandlerController;
 use OCA\CloudFederationAPI\Db\FederatedInvite;
@@ -19,7 +20,10 @@ use OCP\AppFramework\Http\JSONResponse;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\EventDispatcher\IEventDispatcher;
 use OCP\Federation\ICloudFederationFactory;
+use OCP\Federation\ICloudFederationProvider;
 use OCP\Federation\ICloudFederationProviderManager;
+use OCP\Federation\ICloudFederationShare;
+use OCP\Federation\ICloudId;
 use OCP\Federation\ICloudIdManager;
 use OCP\IAppConfig;
 use OCP\IGroupManager;
@@ -133,5 +137,110 @@ class RequestHandlerControllerTest extends TestCase {
 		$json = new JSONResponse($response, Http::STATUS_OK);
 
 		$this->assertEquals($json, $this->requestHandlerController->inviteAccepted($recipientProvider, $token, $recipientId, $recipientEmail, $recipientName));
+	}
+
+	public static function addShareProtocolDataProvider(): array {
+		// Each entry is the `protocol` payload posted to addShare(). Verifies that the
+		// validator accepts both shapes the OCM spec defines.
+		return [
+			'legacy single-protocol' => [
+				['name' => 'webdav', 'options' => ['sharedSecret' => 'secret-legacy']],
+			],
+			'multi envelope, one inner protocol' => [
+				['name' => 'multi', 'webdav' => ['sharedSecret' => 'secret-multi-single', 'uri' => 'https://sender/webdav/']],
+			],
+			'multi envelope, multiple inner protocols' => [
+				[
+					'name' => 'multi',
+					'webdav' => ['sharedSecret' => 'secret-webdav', 'uri' => 'https://sender/webdav/'],
+					'webapp' => ['sharedSecret' => 'secret-webapp', 'uri' => 'https://sender/launch'],
+				],
+			],
+			'multi envelope, sharedSecret only on non-webdav entry' => [
+				[
+					'name' => 'multi',
+					'webapp' => ['sharedSecret' => 'secret-webapp-only', 'uri' => 'https://sender/launch'],
+				],
+			],
+		];
+	}
+
+	/**
+	 * @dataProvider addShareProtocolDataProvider
+	 */
+	public function testAddShareAcceptsValidProtocolShapes(array $protocol): void {
+		$this->appConfig->method('getValueBool')
+			->with('core', OCMSignatoryManager::APPCONFIG_SIGN_DISABLED, true)
+			->willReturn(true);
+
+		$cloudId = $this->createMock(ICloudId::class);
+		$cloudId->method('getUser')->willReturn('bob');
+		$this->cloudIdManager->method('resolveCloudId')->willReturn($cloudId);
+
+		$user = $this->createMock(IUser::class);
+		$user->method('getDisplayName')->willReturn('Bob');
+		$user->method('getUID')->willReturn('bob');
+		$this->userManager->method('userExists')->with('bob')->willReturn(true);
+		$this->userManager->method('get')->with('bob')->willReturn($user);
+
+		$this->config->method('getSupportedShareTypes')->with('file')->willReturn(['user']);
+
+		$capturedShare = null;
+		$share = $this->createMock(ICloudFederationShare::class);
+		$share->expects(self::once())
+			->method('setProtocol')
+			->willReturnCallback(function (array $p) use (&$capturedShare): void {
+				$capturedShare = $p;
+			});
+		$this->cloudFederationFactory->method('getCloudFederationShare')->willReturn($share);
+
+		$provider = $this->createMock(ICloudFederationProvider::class);
+		$provider->expects(self::once())->method('shareReceived')->with($share);
+		$this->cloudFederationProviderManager->method('getCloudFederationProvider')->with('file')->willReturn($provider);
+
+		$response = $this->requestHandlerController->addShare(
+			shareWith: 'bob@receiver.example.org',
+			name: 'doc.odt',
+			description: null,
+			providerId: 'abc',
+			owner: 'alice@sender.example.org',
+			ownerDisplayName: 'Alice',
+			sharedBy: 'alice@sender.example.org',
+			sharedByDisplayName: 'Alice',
+			protocol: $protocol,
+			shareType: 'user',
+			resourceType: 'file',
+		);
+
+		self::assertSame(Http::STATUS_CREATED, $response->getStatus());
+		// The full envelope must reach the provider unchanged so non-file providers can
+		// see entries other than webdav.
+		self::assertSame($protocol, $capturedShare);
+	}
+
+	public function testAddShareRejectsProtocolWithoutSharedSecret(): void {
+		$this->appConfig->method('getValueBool')
+			->with('core', OCMSignatoryManager::APPCONFIG_SIGN_DISABLED, true)
+			->willReturn(true);
+
+		$this->cloudFederationProviderManager->expects(self::never())
+			->method('getCloudFederationProvider');
+
+		$response = $this->requestHandlerController->addShare(
+			shareWith: 'bob@receiver.example.org',
+			name: 'doc.odt',
+			description: null,
+			providerId: 'abc',
+			owner: 'alice@sender.example.org',
+			ownerDisplayName: 'Alice',
+			sharedBy: 'alice@sender.example.org',
+			sharedByDisplayName: 'Alice',
+			protocol: ['name' => 'multi', 'webdav' => ['uri' => 'https://sender/webdav/']],
+			shareType: 'user',
+			resourceType: 'file',
+		);
+
+		self::assertSame(Http::STATUS_BAD_REQUEST, $response->getStatus());
+		self::assertSame('Missing arguments', $response->getData()['message']);
 	}
 }

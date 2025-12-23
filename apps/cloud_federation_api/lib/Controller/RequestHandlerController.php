@@ -7,11 +7,13 @@
 
 namespace OCA\CloudFederationAPI\Controller;
 
+use OC\Authentication\Token\PublicKeyTokenProvider;
 use OC\OCM\OCMSignatoryManager;
 use OCA\CloudFederationAPI\Config;
 use OCA\CloudFederationAPI\Db\FederatedInviteMapper;
 use OCA\CloudFederationAPI\Events\FederatedInviteAcceptedEvent;
 use OCA\CloudFederationAPI\ResponseDefinitions;
+use OCA\DAV\Db\OcmTokenMapMapper;
 use OCA\FederatedFileSharing\AddressHandler;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Db\DoesNotExistException;
@@ -43,6 +45,7 @@ use OCP\Security\Signature\Exceptions\IncomingRequestException;
 use OCP\Security\Signature\Exceptions\SignatoryNotFoundException;
 use OCP\Security\Signature\IIncomingSignedRequest;
 use OCP\Security\Signature\ISignatureManager;
+use OCP\Server;
 use OCP\Share\Exceptions\ShareNotFound;
 use OCP\Util;
 use Psr\Log\LoggerInterface;
@@ -91,7 +94,14 @@ class RequestHandlerController extends Controller {
 	 * @param string|null $ownerDisplayName Display name of the user who shared the item
 	 * @param string|null $sharedBy Provider specific UID of the user who shared the resource
 	 * @param string|null $sharedByDisplayName Display name of the user who shared the resource
-	 * @param array{name: list<string>, options: array<string, mixed>} $protocol e,.g. ['name' => 'webdav', 'options' => ['username' => 'john', 'permissions' => 31]]
+	 * @param array<string, mixed> $protocol OCM protocol envelope. Two shapes are accepted:
+	 *     - Legacy single-protocol: `{name: "<type>", options: {sharedSecret: "...", ...}}`
+	 *     - Multi-protocol envelope per OCM spec: `{name: "multi", "<type>": {sharedSecret: "...", ...}, ...}`
+	 *       At least one inner protocol entry must declare a `sharedSecret`. Even a payload that
+	 *       carries only one protocol uses `name: "multi"` as the envelope marker in the new shape.
+	 *     The envelope is forwarded to the resource provider unchanged; providers read the inner
+	 *     entries they care about (webdav, webapp, ...).
+	 *     @link https://github.com/cs3org/OCM-API/blob/develop/work/webapps/webapp-sharing.md
 	 * @param string $shareType 'group' or 'user' share
 	 * @param string $resourceType 'file', 'calendar',...
 	 *
@@ -126,9 +136,7 @@ class RequestHandlerController extends Controller {
 			|| $shareType === null
 			|| !is_array($protocol)
 			|| !isset($protocol['name'])
-			|| !isset($protocol['options'])
-			|| !is_array($protocol['options'])
-			|| !isset($protocol['options']['sharedSecret'])
+			|| !$this->protocolCarriesSharedSecret($protocol)
 		) {
 			return new JSONResponse(
 				[
@@ -414,6 +422,41 @@ class RequestHandlerController extends Controller {
 	}
 
 	/**
+	 * Check that the protocol envelope carries at least one sharedSecret.
+	 *
+	 * Accepts both the legacy single-protocol shape `{name, options: {sharedSecret}}`
+	 * and the multi-protocol envelope from the OCM spec
+	 * `{name: "multi", "<protocol>": {sharedSecret, ...}, ...}`. Even a payload with a
+	 * single inner protocol uses `name: "multi"` in the new shape, so we don't gate
+	 * on the `name` value — we scan all sibling entries for the first sharedSecret.
+	 *
+	 * The full envelope is forwarded to the resource provider unchanged; the provider
+	 * decides which entries it understands.
+	 *
+	 * @param array<string, mixed> $protocol
+	 * @see https://github.com/cs3org/OCM-API/blob/develop/work/webapps/webapp-sharing.md
+	 */
+	private function protocolCarriesSharedSecret(array $protocol): bool {
+		if (
+			isset($protocol['options'])
+			&& is_array($protocol['options'])
+			&& isset($protocol['options']['sharedSecret'])
+			&& is_string($protocol['options']['sharedSecret'])
+		) {
+			return true;
+		}
+		foreach ($protocol as $key => $value) {
+			if ($key === 'name' || $key === 'options' || !is_array($value)) {
+				continue;
+			}
+			if (isset($value['sharedSecret']) && is_string($value['sharedSecret'])) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * map login name to internal LDAP UID if a LDAP backend is in use
 	 *
 	 * @param string $uid
@@ -490,6 +533,12 @@ class RequestHandlerController extends Controller {
 			$provider = $this->cloudFederationProviderManager->getCloudFederationProvider($resourceType);
 			if ($provider instanceof ISignedCloudFederationProvider || $provider instanceof \NCU\Federation\ISignedCloudFederationProvider) {
 				$identity = $provider->getFederationIdFromSharedSecret($sharedSecret, $notification);
+				if ($identity === '') {
+					$tokenProvider = Server::get(PublicKeyTokenProvider::class);
+					$accessTokenDb = $tokenProvider->getToken($sharedSecret);
+					$refreshToken = $accessTokenDb->getUID();
+					$identity = $provider->getFederationIdFromSharedSecret($refreshToken, $notification);
+				}
 			} else {
 				$this->logger->debug('cloud federation provider {provider} does not implements ISignedCloudFederationProvider', ['provider' => $provider::class]);
 				return;
