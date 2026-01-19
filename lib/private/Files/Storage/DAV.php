@@ -67,6 +67,7 @@ class BearerAuthAwareSabreClient extends Client {
 		if (isset($settings['userName']) && isset($settings['authType']) && ($settings['authType'] & self::AUTH_BEARER)) {
 			$userName = $settings['userName'];
 
+			/** @psalm-suppress InvalidArrayOffset */
 			$curlType = $this->curlSettings[CURLOPT_HTTPAUTH];
 			$curlType |= CURLAUTH_BEARER;
 
@@ -86,7 +87,7 @@ class DAV extends Common {
 	protected $password;
 	/** @var string */
 	protected $user;
-	/** @var string|null */
+	/** @var int|null */
 	protected $authType;
 	/** @var string */
 	protected $host;
