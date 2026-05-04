@@ -21,6 +21,7 @@ interface ICapabilityAwareOCMProvider extends IOCMProvider {
 	 * @return string
 	 * @since 32.0.0
 	 */
+	#[\Override]
 	public function getTokenEndPoint(): string;
 
 	/**
@@ -31,5 +32,6 @@ interface ICapabilityAwareOCMProvider extends IOCMProvider {
 	 * @return $this
 	 * @since 32.0.0
 	 */
+	#[\Override]
 	public function setTokenEndPoint(string $endPoint): static;
 }
