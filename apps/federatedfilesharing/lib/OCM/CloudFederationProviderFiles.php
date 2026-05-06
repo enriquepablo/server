@@ -9,6 +9,7 @@ namespace OCA\FederatedFileSharing\OCM;
 use OC\AppFramework\Http;
 use OC\Files\Filesystem;
 use OC\OCM\OCMSignatoryManager;
+use OC\OCM\Rfc9421SignatoryManager;
 use OCA\FederatedFileSharing\AddressHandler;
 use OCA\FederatedFileSharing\FederatedShareProvider;
 use OCA\Federation\TrustedServers;
@@ -759,7 +760,7 @@ class CloudFederationProviderFiles implements ISignedCloudFederationProvider {
 
 			try {
 				$options = $this->signatureManager->signOutgoingRequestIClientPayload(
-					$this->signatoryManager,
+					new Rfc9421SignatoryManager($this->signatoryManager),
 					$options,
 					'post',
 					$tokenEndpoint
