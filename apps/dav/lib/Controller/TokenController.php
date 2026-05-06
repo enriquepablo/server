@@ -7,6 +7,7 @@
 
 namespace OCA\DAV\Controller;
 
+use Firebase\JWT\JWT;
 use OC\Authentication\Token\IProvider;
 use OC\OCM\OCMSignatoryManager;
 use OCA\DAV\Db\OcmTokenMap;
@@ -30,6 +31,8 @@ use OCP\Security\Signature\Exceptions\SignatureException;
 use OCP\Security\Signature\Exceptions\SignatureNotFoundException;
 use OCP\Security\Signature\IIncomingSignedRequest;
 use OCP\Security\Signature\ISignatureManager;
+use OCP\Security\Signature\Model\Signatory;
+use OCP\Share\IManager as IShareManager;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -49,6 +52,7 @@ class TokenController extends ApiController {
 		private readonly OCMSignatoryManager $signatoryManager,
 		private readonly IAppConfig $appConfig,
 		private readonly OcmTokenMapMapper $ocmTokenMapMapper,
+		private readonly IShareManager $shareManager,
 	) {
 		parent::__construct('dav', $request);
 	}
@@ -78,6 +82,35 @@ class TokenController extends ApiController {
 			$this->logger->warning('Invalid token request signature', ['exception' => $e]);
 			throw new IncomingRequestException('Invalid signature');
 		}
+	}
+
+	/**
+	 * @return array{0: string, 1: string} [JWS algorithm, key material accepted by firebase/php-jwt]
+	 * @throws \RuntimeException if the key cannot be parsed or its type is unsupported
+	 */
+	private function resolveJwtSigningKey(string $privateKeyPem): array {
+		$key = openssl_pkey_get_private($privateKeyPem);
+		if ($key === false) {
+			throw new \RuntimeException('Cannot parse signatory private key');
+		}
+		$details = openssl_pkey_get_details($key);
+
+		if (isset($details['rsa'])) {
+			$algorithm = $details['bits'] >= 4096 ? 'RS512' : 'RS256';
+			return [$algorithm, $privateKeyPem];
+		}
+		if (isset($details['ed25519'])) {
+			$der = base64_decode((string)preg_replace('/-----[^-]+-----|\s+/', '', $privateKeyPem), true);
+			if ($der === false || strlen($der) < 32) {
+				throw new \RuntimeException('Cannot decode Ed25519 PKCS#8 PEM');
+			}
+			// RFC 8410 §7: Ed25519 PKCS#8 v1 ends with the 32-byte raw seed
+			$seed = substr($der, -32);
+			$secretKey = sodium_crypto_sign_secretkey(sodium_crypto_sign_seed_keypair($seed));
+			return ['EdDSA', base64_encode($secretKey)];
+		}
+
+		throw new \RuntimeException('Unsupported signatory key type for JWT access token');
 	}
 
 	/**
@@ -153,13 +186,28 @@ class TokenController extends ApiController {
 				$this->ocmTokenMapMapper->delete($existingMapping);
 			}
 
-			$accessTokenString = $this->random->generate(
-				64,
-				ISecureRandom::CHAR_UPPER . ISecureRandom::CHAR_LOWER . ISecureRandom::CHAR_DIGITS
-			);
-
+			$share = $this->shareManager->getShareByToken($refreshToken);
 			$expiresIn = 3600; // 1 hour in seconds
-			$expiresAt = $this->timeFactory->getTime() + $expiresIn;
+			$issuedAt = $this->timeFactory->getTime();
+			$expiresAt = $issuedAt + $expiresIn;
+
+			$signatory = $this->signatoryManager->getLocalSignatory();
+			$keyId = $signatory->getKeyId();
+			$issuer = parse_url($keyId, PHP_URL_SCHEME) . '://' . Signatory::extractIdentityFromUri($keyId);
+
+			[$jwtAlgorithm, $jwtKey] = $this->resolveJwtSigningKey($signatory->getPrivateKey());
+
+			$payload = [
+				'iss' => $issuer,
+				'sub' => $share->getShareOwner(),
+				'aud' => $share->getSharedWith(),
+				'client_id' => (string)$token->getId(),
+				'iat' => $issuedAt,
+				'exp' => $expiresAt,
+				'jti' => $this->random->generate(16, ISecureRandom::CHAR_LOWER . ISecureRandom::CHAR_UPPER . ISecureRandom::CHAR_DIGITS),
+			];
+
+			$accessTokenString = JWT::encode($payload, $jwtKey, $jwtAlgorithm, $keyId);
 
 			$accessToken = $this->tokenProvider->generateToken(
 				$accessTokenString,
