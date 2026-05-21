@@ -91,8 +91,7 @@ class DAV extends Common {
 	protected $password;
 	/** @var string */
 	protected $user;
-	/** @var int|null */
-	protected $authType;
+	protected ?int $authType = null;
 	/** @var string */
 	protected $host;
 	/** @var bool */
@@ -104,8 +103,8 @@ class DAV extends Common {
 	protected $certPath;
 	/** @var bool */
 	protected $ready;
-	/** @var string The resolved bearer token for AUTH_BEARER (access token or exchanged token) */
-	protected $bearerToken;
+	/** The resolved bearer token for AUTH_BEARER (access token or exchanged token) */
+	protected string $bearerToken = '';
 	/** @var Client */
 	protected $client;
 	/** @var ArrayCache */
