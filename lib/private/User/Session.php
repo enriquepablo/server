@@ -617,35 +617,14 @@ class Session implements IUserSession, Emitter {
 			// Ignore and use empty string instead
 		}
 
-		$user = $this->manager->get($uid);
-		if (is_null($user)) {
-			// Maybe this is an access token. We keep the refresh tokens as UID of access tokens
-			try {
-				$token = $uid;
-				$dbToken = $this->tokenProvider->getToken($token);
-			} catch (InvalidTokenException $ex) {
-				return false;
-			}
-			$uid = $dbToken->getUID();
-
-			// When logging in with token, the password must be decrypted first before passing to login hook
-			$password = '';
-			try {
-				$password = $this->tokenProvider->getPassword($dbToken, $token);
-			} catch (PasswordlessTokenException $ex) {
-				// Ignore and use empty string instead
-			}
-			// user does not exist
-			$user = $this->manager->get($uid);
-			if (is_null($user)) {
-				return false;
-			}
-		}
-
 		$this->manager->emit('\OC\User', 'preLogin', [$dbToken->getLoginName(), $password]);
 
-		// See line 173 in this module, needed for completeLogin
-		OC_User::setIncognitoMode(false);
+		$user = $this->manager->get($uid);
+		if (is_null($user)) {
+			// user does not exist
+			return false;
+		}
+
 		return $this->completeLogin(
 			$user,
 			[
@@ -867,10 +846,6 @@ class Session implements IUserSession, Emitter {
 			return false;
 		}
 
-		return $this->doTryTokenLogin($token);
-	}
-
-	private function doTryTokenLogin(string $token): bool {
 		if (!$this->loginWithToken($token)) {
 			return false;
 		}
@@ -878,19 +853,11 @@ class Session implements IUserSession, Emitter {
 			return false;
 		}
 
-		try {
-			$dbToken = $this->tokenProvider->getToken($token);
-		} catch (InvalidTokenException $e) {
-			// Can't really happen but better save than sorry
-			return true;
-		}
-
 		// Set the session variable so we know this is an app password
 		if ($dbToken instanceof PublicKeyToken && $dbToken->getType() === IToken::PERMANENT_TOKEN) {
 			$this->session->set('app_password', $token);
 		} elseif ($dbToken instanceof PublicKeyToken && $dbToken->getType() === IToken::ONETIME_TOKEN) {
 			$this->tokenProvider->invalidateTokenById($dbToken->getUID(), $dbToken->getId());
-			$request = \OCP\Server::get(IRequest::class);
 			if ($request->getPathInfo() !== '/core/getapppassword-onetime') {
 				return false;
 			}

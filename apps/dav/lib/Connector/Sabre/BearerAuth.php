@@ -47,6 +47,14 @@ class BearerAuth extends AbstractBearer {
 		\OC_Util::setupFS();
 		$this->token = $bearerToken;
 
+		// public.php sets incognito mode for anonymous share access, which makes
+		// Session::getUser() return null and consequently Session::isLoggedIn()
+		// return false even after a successful token login. Disable it here so
+		// the logged-in user is visible for the rest of the request. If the
+		// bearer token is invalid and Sabre falls back to one of the public
+		// auth backends, that backend will re-enable incognito mode itself.
+		\OC_User::setIncognitoMode(false);
+
 		if (!$this->userSession->isLoggedIn()) {
 			$this->userSession->tryTokenLogin($this->request);
 		}
