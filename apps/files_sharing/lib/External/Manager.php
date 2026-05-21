@@ -582,9 +582,9 @@ class Manager {
 			$share->setAccessToken($accessToken);
 			$share->setAccessTokenExpires($expiresAt);
 			$this->externalShareMapper->update($share);
-			$this->logger->debug('Updated access token for share', ['refreshToken' => substr($refreshToken, 0, 8) . '...']);
+			$this->logger->debug('Updated access token for share', ['shareId' => $share->getId()]);
 		} catch (DoesNotExistException $e) {
-			$this->logger->warning('Could not find share to update access token', ['refreshToken' => substr($refreshToken, 0, 8) . '...']);
+			$this->logger->warning('Could not find share to update access token', ['shareId' => $share->getId()]);
 		} catch (Exception $e) {
 			$this->logger->error('Failed to update access token', ['exception' => $e]);
 		}
