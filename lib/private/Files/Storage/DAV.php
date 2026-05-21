@@ -618,11 +618,12 @@ class DAV extends Common {
 			case 'rb':
 				try {
 					$response = $this->withAuthRetry(function () use ($path) {
-						$auth = [$this->user, $this->password];
-						$headers = [];
 						if ($this->authType === BearerAuthAwareSabreClient::AUTH_BEARER) {
 							$auth = [];
 							$headers = ['Authorization' => 'Bearer ' . $this->bearerToken];
+						} else {
+							$auth = [$this->user, $this->password];
+							$headers = [];
 						}
 						return $this->httpClientService
 							->newClient()
