@@ -6,10 +6,10 @@ declare(strict_types=1);
  * SPDX-FileCopyrightText: 2026 Nextcloud GmbH and Nextcloud contributors
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-namespace OCA\DAV\Tests\unit\BackgroundJob;
+namespace OCA\CloudFederationAPI\Tests\BackgroundJob;
 
-use OCA\DAV\BackgroundJob\CleanupExpiredOcmTokensJob;
-use OCA\DAV\Db\OcmTokenMapMapper;
+use OCA\CloudFederationAPI\BackgroundJob\CleanupExpiredOcmTokensJob;
+use OCA\CloudFederationAPI\Db\OcmTokenMapMapper;
 use OCP\AppFramework\Utility\ITimeFactory;
 use PHPUnit\Framework\MockObject\MockObject;
 use Test\TestCase;

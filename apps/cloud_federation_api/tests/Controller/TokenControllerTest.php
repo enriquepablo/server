@@ -7,12 +7,12 @@ declare(strict_types=1);
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-namespace OCA\DAV\Tests\unit\DAV\Controller;
+namespace OCA\CloudFederationAPI\Tests\Controller;
 
 use OC\Authentication\Token\IProvider;
 use OC\OCM\OCMSignatoryManager;
-use OCA\DAV\Controller\TokenController;
-use OCA\DAV\Db\OcmTokenMapMapper;
+use OCA\CloudFederationAPI\Controller\TokenController;
+use OCA\CloudFederationAPI\Db\OcmTokenMapMapper;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\Utility\ITimeFactory;

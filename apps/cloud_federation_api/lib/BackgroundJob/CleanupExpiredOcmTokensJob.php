@@ -7,14 +7,14 @@ declare(strict_types=1);
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-namespace OCA\DAV\BackgroundJob;
+namespace OCA\CloudFederationAPI\BackgroundJob;
 
-use OCA\DAV\Db\OcmTokenMapMapper;
+use OCA\CloudFederationAPI\Db\OcmTokenMapMapper;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\BackgroundJob\TimedJob;
 
 /**
- * Periodically purge expired OCM access token mappings from dav_ocm_token_map.
+ * Periodically purge expired OCM access token mappings from ocm_token_map.
  *
  * The corresponding oc_authtoken entries (TEMPORARY_TOKEN with an expires
  * timestamp) are cleaned up by Nextcloud's own token expiry jobs.

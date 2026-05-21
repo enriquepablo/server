@@ -7,7 +7,7 @@ declare(strict_types=1);
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-namespace OCA\DAV\Db;
+namespace OCA\CloudFederationAPI\Db;
 
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Db\QBMapper;
@@ -18,7 +18,7 @@ use OCP\IDBConnection;
  */
 class OcmTokenMapMapper extends QBMapper {
 	public function __construct(IDBConnection $db) {
-		parent::__construct($db, 'dav_ocm_token_map', OcmTokenMap::class);
+		parent::__construct($db, 'ocm_token_map', OcmTokenMap::class);
 	}
 
 	/**

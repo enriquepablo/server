@@ -193,7 +193,7 @@ final class OCMDiscoveryService implements IOCMDiscoveryService {
 		}
 
 		$url = $this->urlGenerator->linkToRouteAbsolute('cloud_federation_api.requesthandlercontroller.addShare');
-		$tokenUrl = $this->urlGenerator->linkToRouteAbsolute('dav.Token.accessToken');
+		$tokenUrl = $this->urlGenerator->linkToRouteAbsolute('cloud_federation_api.Token.accessToken');
 		$pos = strrpos($url, '/');
 		if ($pos === false) {
 			$this->logger->debug('generated route should contain a slash character');

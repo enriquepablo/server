@@ -5,13 +5,13 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-namespace OCA\DAV\Controller;
+namespace OCA\CloudFederationAPI\Controller;
 
 use Firebase\JWT\JWT;
 use OC\Authentication\Token\IProvider;
 use OC\OCM\OCMSignatoryManager;
-use OCA\DAV\Db\OcmTokenMap;
-use OCA\DAV\Db\OcmTokenMapMapper;
+use OCA\CloudFederationAPI\Db\OcmTokenMap;
+use OCA\CloudFederationAPI\Db\OcmTokenMapMapper;
 use OCP\AppFramework\ApiController;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\FrontpageRoute;
@@ -54,7 +54,7 @@ class TokenController extends ApiController {
 		private readonly OcmTokenMapMapper $ocmTokenMapMapper,
 		private readonly IShareManager $shareManager,
 	) {
-		parent::__construct('dav', $request);
+		parent::__construct('cloud_federation_api', $request);
 	}
 
 	/**
