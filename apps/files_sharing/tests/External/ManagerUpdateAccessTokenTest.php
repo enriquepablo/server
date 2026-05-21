@@ -68,7 +68,7 @@ class ManagerUpdateAccessTokenTest extends TestCase {
 
 	public function testUpdateAccessTokenUpdatesShareInDb(): void {
 		$share = new ExternalShare();
-		$share->setShareToken('refresh-token');
+		$share->setRefreshToken('refresh-token');
 
 		$this->externalShareMapper->expects($this->once())
 			->method('getShareByToken')

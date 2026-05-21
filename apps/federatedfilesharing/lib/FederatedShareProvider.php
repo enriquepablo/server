@@ -143,7 +143,7 @@ class FederatedShareProvider implements IShareProvider, IShareProviderSupportsAl
 			$ownerCloudId = $this->cloudIdManager->getCloudId($remoteShare['owner'], $remoteShare['remote']);
 			$shareId = $this->addShareToDB($itemSource, $itemType, $shareWith, $sharedBy, $ownerCloudId->getId(), $permissions, 'tmp_token_' . time(), $shareType, $expirationDate);
 			[$token, $remoteId] = $this->notifications->requestReShare(
-				$remoteShare['share_token'],
+				$remoteShare['refresh_token'],
 				$remoteShare['remote_id'],
 				$shareId,
 				$remoteShare['remote'],

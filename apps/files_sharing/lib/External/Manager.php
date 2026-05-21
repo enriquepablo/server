@@ -111,7 +111,7 @@ class Manager {
 
 		$options = [
 			'remote' => $externalShare->getRemote(),
-			'token' => $externalShare->getShareToken(),
+			'token' => $externalShare->getRefreshToken(),
 			'password' => $externalShare->getPassword(),
 			'access_token' => $externalShare->getAccessToken(),
 			'access_token_expires' => $externalShare->getAccessTokenExpires(),
@@ -201,7 +201,7 @@ class Manager {
 				$subShare->setRemoteId($externalShare->getRemoteId());
 				$subShare->setParent((string)$externalShare->getId());
 				$subShare->setShareType($externalShare->getShareType());
-				$subShare->setShareToken($externalShare->getShareToken());
+				$subShare->setRefreshToken($externalShare->getRefreshToken());
 				$this->externalShareMapper->insert($subShare);
 			}
 		}
@@ -340,7 +340,7 @@ class Manager {
 		$endpoint = $federationEndpoints['share'] ?? '/ocs/v2.php/cloud/shares';
 
 		$url = rtrim($externalShare->getRemote(), '/') . $endpoint . '/' . $externalShare->getRemoteId() . '/' . $feedback . '?format=json';
-		$fields = ['token' => $externalShare->getShareToken()];
+		$fields = ['token' => $externalShare->getRefreshToken()];
 
 		$client = $this->clientService->newClient();
 
@@ -376,7 +376,7 @@ class Manager {
 					'file',
 					$externalShare->getRemoteId(),
 					[
-						'sharedSecret' => $externalShare->getShareToken(),
+						'sharedSecret' => $externalShare->getRefreshToken(),
 						'message' => 'Recipient accept the share'
 					]
 
@@ -389,7 +389,7 @@ class Manager {
 					'file',
 					$externalShare->getRemoteId(),
 					[
-						'sharedSecret' => $externalShare->getShareToken(),
+						'sharedSecret' => $externalShare->getRefreshToken(),
 						'message' => 'Recipient declined the share'
 					]
 				);
@@ -573,18 +573,18 @@ class Manager {
 	/**
 	 * Update the access token for a share.
 	 *
-	 * @param string $shareToken The share token (refresh token) to identify the share
+	 * @param string $refreshToken The refresh token to identify the share
 	 * @param string $accessToken The new access token to store
 	 */
-	public function updateAccessToken(string $shareToken, string $accessToken, int $expiresAt): void {
+	public function updateAccessToken(string $refreshToken, string $accessToken, int $expiresAt): void {
 		try {
-			$share = $this->externalShareMapper->getShareByToken($shareToken);
+			$share = $this->externalShareMapper->getShareByToken($refreshToken);
 			$share->setAccessToken($accessToken);
 			$share->setAccessTokenExpires($expiresAt);
 			$this->externalShareMapper->update($share);
-			$this->logger->debug('Updated access token for share', ['shareToken' => substr($shareToken, 0, 8) . '...']);
+			$this->logger->debug('Updated access token for share', ['refreshToken' => substr($refreshToken, 0, 8) . '...']);
 		} catch (DoesNotExistException $e) {
-			$this->logger->warning('Could not find share to update access token', ['shareToken' => substr($shareToken, 0, 8) . '...']);
+			$this->logger->warning('Could not find share to update access token', ['refreshToken' => substr($refreshToken, 0, 8) . '...']);
 		} catch (Exception $e) {
 			$this->logger->error('Failed to update access token', ['exception' => $e]);
 		}
