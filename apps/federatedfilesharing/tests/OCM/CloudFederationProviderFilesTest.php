@@ -33,6 +33,7 @@ use OCP\IUserManager;
 use OCP\Notification\IManager as INotificationManager;
 use OCP\OCM\IOCMDiscoveryService;
 use OCP\OCM\IOCMProvider;
+use OCP\OCM\OCMCapabilities;
 use OCP\Security\Signature\ISignatureManager;
 use OCP\Share\IManager;
 use OCP\Share\IProviderFactory;
@@ -191,7 +192,7 @@ class CloudFederationProviderFilesTest extends TestCase {
 
 		$ocmProvider = $this->createMock(IOCMProvider::class);
 		$ocmProvider->method('getTokenEndPoint')->willReturn($tokenEndpoint);
-		$ocmProvider->method('getCapabilities')->willReturn([]);
+		$ocmProvider->method('getCapabilities')->willReturn(new OCMCapabilities([]));
 
 		$this->discoveryService->method('discover')->willReturn($ocmProvider);
 
@@ -273,7 +274,7 @@ class CloudFederationProviderFilesTest extends TestCase {
 
 		$ocmProvider = $this->createMock(IOCMProvider::class);
 		$ocmProvider->method('getTokenEndPoint')->willReturn($tokenEndpoint);
-		$ocmProvider->method('getCapabilities')->willReturn(['exchange-token']);
+		$ocmProvider->method('getCapabilities')->willReturn(new OCMCapabilities(['exchange-token']));
 
 		$this->discoveryService->method('discover')->willReturn($ocmProvider);
 

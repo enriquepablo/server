@@ -13,6 +13,7 @@ use OCP\OCM\Exceptions\OCMArgumentException;
 use OCP\OCM\Exceptions\OCMProviderException;
 use OCP\OCM\IOCMProvider;
 use OCP\OCM\IOCMResource;
+use OCP\OCM\OCMCapabilities;
 use OCP\Security\Signature\Model\Signatory;
 
 /**
@@ -165,12 +166,9 @@ class OCMProvider implements IOCMProvider {
 		return $this;
 	}
 
-	/**
-	 * @return array
-	 */
 	#[\Override]
-	public function getCapabilities(): array {
-		return $this->capabilities;
+	public function getCapabilities(): OCMCapabilities {
+		return new OCMCapabilities($this->capabilities);
 	}
 
 	/**
@@ -334,9 +332,8 @@ class OCMProvider implements IOCMProvider {
 			'resourceTypes' => $resourceTypes
 		];
 
-		$capabilities = $this->getCapabilities();
-		if ($capabilities) {
-			$response['capabilities'] = $capabilities;
+		if ($this->capabilities !== []) {
+			$response['capabilities'] = $this->capabilities;
 		}
 		$tokenEndpoint = $this->getTokenEndPoint();
 		if ($tokenEndpoint) {

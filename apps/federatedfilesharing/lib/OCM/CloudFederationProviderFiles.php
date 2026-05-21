@@ -131,8 +131,7 @@ class CloudFederationProviderFiles implements ISignedCloudFederationProvider {
 			// Check if remote has exchange-token capability and try to exchange (optional)
 			try {
 				$ocmProvider = $this->discoveryService->discover(rtrim($remote, '/'));
-				$capabilities = $ocmProvider->getCapabilities();
-				if (in_array('exchange-token', $capabilities)) {
+				if ($ocmProvider->getCapabilities()->hasExchangeToken()) {
 					$accessToken = $this->exchangeToken($remote, $token) ?? '';
 					$this->logger->debug('Exchanged token for remote with exchange-token capability', ['remote' => $remote, 'success' => !empty($accessToken)]);
 				}

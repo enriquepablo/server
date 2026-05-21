@@ -51,12 +51,11 @@ class CloudFederationFactory implements ICloudFederationFactory {
 			try {
 				$remoteProvider = $this->ocmDiscoveryService->discover($remoteDomain);
 				$capabilities = $remoteProvider->getCapabilities();
-
-				$useExchangeToken = in_array('exchange-token', $capabilities, true);
+				$useExchangeToken = $capabilities->hasExchangeToken();
 
 				$this->logger->debug('OCM provider capabilities discovered', [
 					'remote' => $remoteDomain,
-					'capabilities' => $capabilities,
+					'capabilities' => $capabilities->toArray(),
 					'useExchangeToken' => $useExchangeToken,
 				]);
 			} catch (OCMProviderException $e) {

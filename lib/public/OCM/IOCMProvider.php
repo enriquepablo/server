@@ -110,12 +110,11 @@ interface IOCMProvider extends JsonSerializable {
 	public function getResourceTypes(): array;
 
 	/**
-	 * get the capabilities
+	 * get the capabilities advertised by this provider
 	 *
-	 * @return array
 	 * @since 33.0.0
 	 */
-	public function getCapabilities(): array;
+	public function getCapabilities(): OCMCapabilities;
 
 	/**
 	 * return if provider supports $capability
