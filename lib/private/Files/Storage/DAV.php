@@ -201,21 +201,22 @@ class DAV extends Common {
 		}
 		$this->ready = true;
 
+		// For Basic auth, the share token is kept as the user name
+		$token = $this->user;
 		// If using Bearer auth, use stored access token or exchange refresh token for access token
-		$userName = $this->user;
 		if ($this->authType !== null && ($this->authType & BearerAuthAwareSabreClient::AUTH_BEARER)) {
 			// Check if we already have an access token stored (password field)
 			if (!empty($this->password)) {
-				$userName = $this->password;
+				$token = $this->password;
 			} else {
-				$userName = $this->exchangeRefreshToken();
+				$token = $this->exchangeRefreshToken();
 			}
-			$this->bearerToken = $userName;
+			$this->bearerToken = $token;
 		}
 
 		$settings = [
 			'baseUri' => $this->createBaseUri(),
-			'userName' => $userName,
+			'userName' => $this->user,
 			'password' => $this->password,
 		];
 		if ($this->authType !== null) {
