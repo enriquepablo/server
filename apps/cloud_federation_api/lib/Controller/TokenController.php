@@ -116,6 +116,8 @@ class TokenController extends ApiController {
 	/**
 	 * Exchange a refresh token for a short-lived access token
 	 *
+	 * @param string $grant_type OAuth grant type, must be `authorization_code`
+	 * @param string $code The refresh token to exchange for an access token
 	 * @return DataResponse<Http::STATUS_OK, array{access_token: string, token_type: string, expires_in: int}, array{}>|DataResponse<Http::STATUS_UNAUTHORIZED|Http::STATUS_BAD_REQUEST|Http::STATUS_INTERNAL_SERVER_ERROR, array{error: string}, array{}>
 	 *
 	 * 200: Access token successfully generated
@@ -126,7 +128,7 @@ class TokenController extends ApiController {
 	#[PublicPage]
 	#[NoCSRFRequired]
 	#[FrontpageRoute(verb: 'POST', url: '/api/v1/access-token')]
-	public function accessToken(): DataResponse {
+	public function accessToken(string $grant_type = '', string $code = ''): DataResponse {
 		try {
 			$signedRequest = $this->verifySignedRequest();
 		} catch (IncomingRequestException $e) {
@@ -139,25 +141,21 @@ class TokenController extends ApiController {
 			);
 		}
 
-		$body = file_get_contents('php://input');
-		parse_str($body, $data);
-
-		$refreshToken = $data['code'] ?? '';
-		$grantType = $data['grant_type'] ?? '';
-
-		if ($grantType !== 'authorization_code') {
+		if ($grant_type !== 'authorization_code') {
 			return new DataResponse(
 				['error' => 'unsupported_grant_type'],
 				Http::STATUS_BAD_REQUEST
 			);
 		}
 
-		if (empty($refreshToken)) {
+		if ($code === '') {
 			return new DataResponse(
 				['error' => 'refresh_token is required'],
 				Http::STATUS_BAD_REQUEST
 			);
 		}
+
+		$refreshToken = $code;
 
 		try {
 			$token = $this->tokenProvider->getToken($refreshToken);
