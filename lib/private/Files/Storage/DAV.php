@@ -44,12 +44,14 @@ use Sabre\DAV\Xml\Property\ResourceType;
 use Sabre\HTTP\ClientException;
 use Sabre\HTTP\ClientHttpException;
 use Sabre\HTTP\RequestInterface;
+use Sabre\HTTP\ResponseInterface as SabreResponseInterface;
 
 /**
- * Class BearerAuthAwareSabreClient
- *
- * This is an extension of the Sabre HTTP Client
- * to provide it with the ability to make bearer authn requests.
+ * Sabre HTTP Client extended with Bearer-token authentication and transparent
+ * refresh-on-401: when a request fails with HTTP 401 the client invokes a
+ * registered refresh callback once, applies the new token, and replays the
+ * request. Callers can use the client normally without thinking about token
+ * expiry.
  *
  * @package OC\Files\Storage
  */
@@ -59,25 +61,59 @@ class BearerAuthAwareSabreClient extends Client {
 	 */
 	public const AUTH_BEARER = 8;
 
-	/**
-	 * Constructor.
-	 *
-	 * See Sabre\DAV\Client
-	 *
-	 */
+	/** @var (\Closure(): ?string)|null returns a fresh bearer token, or null if it cannot be refreshed */
+	private ?\Closure $refreshTokenCallback = null;
+
+	/** Guard against re-entry if the replayed request also returns 401. */
+	private bool $retrying = false;
+
 	public function __construct(array $settings) {
 		parent::__construct($settings);
 
 		if (isset($settings['userName']) && isset($settings['authType']) && ($settings['authType'] & self::AUTH_BEARER)) {
-			$userName = $settings['userName'];
-
-			/** @psalm-suppress InvalidArrayOffset */
-			$curlType = $this->curlSettings[CURLOPT_HTTPAUTH];
-			$curlType |= CURLAUTH_BEARER;
-
-			$this->addCurlSetting(CURLOPT_HTTPAUTH, $curlType);
-			$this->addCurlSetting(CURLOPT_XOAUTH2_BEARER, $userName);
+			$this->applyBearerToken((string)$settings['userName']);
 		}
+	}
+
+	/**
+	 * Register a callback invoked when a request comes back with HTTP 401. The
+	 * callback should return a fresh bearer token, or null to give up. When a
+	 * non-empty token is returned the failing request is replayed once.
+	 *
+	 * @param (callable(): ?string)|null $callback
+	 */
+	public function setRefreshTokenCallback(?callable $callback): void {
+		$this->refreshTokenCallback = $callback === null ? null : \Closure::fromCallable($callback);
+	}
+
+	#[\Override]
+	public function send(RequestInterface $request): SabreResponseInterface {
+		try {
+			return parent::send($request);
+		} catch (ClientHttpException $e) {
+			if ($e->getHttpStatus() !== 401 || $this->retrying || $this->refreshTokenCallback === null) {
+				throw $e;
+			}
+			$this->retrying = true;
+			try {
+				$newToken = ($this->refreshTokenCallback)();
+				if (!is_string($newToken) || $newToken === '') {
+					throw $e;
+				}
+				$this->applyBearerToken($newToken);
+				return parent::send($request);
+			} finally {
+				$this->retrying = false;
+			}
+		}
+	}
+
+	private function applyBearerToken(string $token): void {
+		/** @psalm-suppress InvalidArrayOffset */
+		$curlType = $this->curlSettings[CURLOPT_HTTPAUTH] ?? 0;
+		$curlType |= CURLAUTH_BEARER;
+		$this->addCurlSetting(CURLOPT_HTTPAUTH, $curlType);
+		$this->addCurlSetting(CURLOPT_XOAUTH2_BEARER, $token);
 	}
 }
 
@@ -231,6 +267,13 @@ class DAV extends Common {
 		$this->client = new BearerAuthAwareSabreClient($settings);
 		$this->client->setThrowExceptions(true);
 
+		// Bearer mode: arm the client with a refresh callback so it can
+		// transparently exchange a new access token and replay a request that
+		// came back 401.
+		if ($this->isBearerAuth()) {
+			$this->client->setRefreshTokenCallback(fn (): ?string => $this->refreshAccessToken());
+		}
+
 		if ($this->secure === true) {
 			if ($this->verify === false) {
 				$this->client->addCurlSetting(CURLOPT_SSL_VERIFYPEER, false);
@@ -366,69 +409,61 @@ class DAV extends Common {
 			&& ($this->authType & BearerAuthAwareSabreClient::AUTH_BEARER);
 	}
 
-	/**
-	 * @var bool Flag to prevent infinite retry loops during token refresh
-	 */
+	/** Guard against re-entry while a Guzzle-path 401 is being recovered. */
 	private bool $retryingAuth = false;
 
 	/**
-	 * Execute an operation with automatic retry on 401 Unauthorized when using Bearer auth.
-	 * Handles both Sabre ClientHttpException and Guzzle ClientException.
+	 * Wrap a Guzzle-based operation with retry-on-401 using the bearer-token
+	 * refresh. Sabre-based operations don't need this — {@see BearerAuthAwareSabreClient}
+	 * handles 401 transparently on its own.
 	 *
 	 * @template T
-	 * @param callable(): T $operation The operation to execute
-	 * @return T The result of the operation
-	 * @throws ClientHttpException
+	 * @param callable(): T $operation
+	 * @return T
 	 * @throws \GuzzleHttp\Exception\ClientException
 	 */
 	protected function withAuthRetry(callable $operation): mixed {
 		try {
 			return $operation();
-		} catch (ClientHttpException $e) {
-			if ($e->getHttpStatus() === 401 && !$this->retryingAuth && $this->isBearerAuth()) {
-				return $this->retryWithFreshToken($operation);
-			}
-			throw $e;
 		} catch (\GuzzleHttp\Exception\ClientException $e) {
-			if ($e->getResponse() instanceof ResponseInterface
-				&& $e->getResponse()->getStatusCode() === 401
-				&& !$this->retryingAuth && $this->isBearerAuth()) {
-				return $this->retryWithFreshToken($operation);
+			if (!$this->isBearerAuth()
+				|| $this->retryingAuth
+				|| !($e->getResponse() instanceof ResponseInterface)
+				|| $e->getResponse()->getStatusCode() !== 401) {
+				throw $e;
 			}
-			throw $e;
+			$this->retryingAuth = true;
+			try {
+				if ($this->refreshAccessToken() === null) {
+					throw $e;
+				}
+				return $operation();
+			} finally {
+				$this->retryingAuth = false;
+			}
 		}
 	}
 
 	/**
-	 * Refresh the bearer token and retry the operation.
+	 * Exchange the long-lived refresh token for a new short-lived access token
+	 * and update {@see $bearerToken} (and the stored password so subsequent
+	 * init() calls reuse the same token). Used as the refresh callback for the
+	 * Sabre client and by {@see withAuthRetry} for the Guzzle paths.
 	 *
-	 * @template T
-	 * @param callable(): T $operation The operation to retry
-	 * @return T The result of the operation
+	 * @return string|null new access token, or null if the exchange failed
 	 */
-	private function retryWithFreshToken(callable $operation): mixed {
-		$this->retryingAuth = true;
+	protected function refreshAccessToken(): ?string {
+		$this->logger->debug('Bearer token expired, exchanging for a fresh access token', ['app' => 'dav']);
 		try {
-			if (!$this->refreshBearerToken()) {
-				throw new StorageNotAvailableException('Failed to refresh bearer token');
-			}
-			return $operation();
-		} finally {
-			$this->retryingAuth = false;
+			$this->password = '';  // force a fresh exchange instead of reusing the expired one
+			$newToken = $this->exchangeRefreshToken();
+		} catch (\Exception $e) {
+			$this->logger->warning('Failed to refresh bearer token: ' . $e->getMessage(), ['app' => 'dav', 'exception' => $e]);
+			return null;
 		}
-	}
-
-	/**
-	 * Refresh the bearer token. Override in subclasses to add persistence logic.
-	 *
-	 * @return bool True if token was refreshed successfully
-	 */
-	protected function refreshBearerToken(): bool {
-		$this->logger->debug('Bearer token expired, refreshing token', ['app' => 'dav']);
-		$this->ready = false;
-		$this->password = '';  // Clear to force token exchange in init()
-		$this->init();
-		return true;
+		$this->bearerToken = $newToken;
+		$this->password = $newToken;
+		return $newToken;
 	}
 
 	/**
@@ -540,10 +575,10 @@ class DAV extends Common {
 			$this->init();
 			$response = false;
 			try {
-				$response = $this->withAuthRetry(fn () => $this->client->propFind(
+				$response = $this->client->propFind(
 					$this->encodePath($path),
 					$this->getPropfindProperties()
-				));
+				);
 				$this->statCache->set($path, $response);
 			} catch (ClientHttpException $e) {
 				if ($e->getHttpStatus() === 404 || $e->getHttpStatus() === 405) {
@@ -738,9 +773,9 @@ class DAV extends Common {
 		if ($this->file_exists($path)) {
 			try {
 				$this->statCache->remove($path);
-				$this->withAuthRetry(fn () => $this->client->proppatch($this->encodePath($path), ['{DAV:}lastmodified' => $mtime]));
+				$this->client->proppatch($this->encodePath($path), ['{DAV:}lastmodified' => $mtime]);
 				// non-owncloud clients might not have accepted the property, need to recheck it
-				$response = $this->withAuthRetry(fn () => $this->client->propfind($this->encodePath($path), ['{DAV:}getlastmodified'], 0));
+				$response = $this->client->propfind($this->encodePath($path), ['{DAV:}getlastmodified'], 0);
 				if (isset($response['{DAV:}getlastmodified'])) {
 					$remoteMtime = strtotime($response['{DAV:}getlastmodified']);
 					if ($remoteMtime !== $mtime) {
@@ -813,14 +848,14 @@ class DAV extends Common {
 				// needs trailing slash in destination
 				$target = rtrim($target, '/') . '/';
 			}
-			$this->withAuthRetry(fn () => $this->client->request(
+			$this->client->request(
 				'MOVE',
 				$this->encodePath($source),
 				null,
 				[
 					'Destination' => $this->createBaseUri() . $this->encodePath($target),
 				]
-			));
+			);
 			$this->statCache->clear($source . '/');
 			$this->statCache->clear($target . '/');
 			$this->statCache->set($source, false);
@@ -847,14 +882,14 @@ class DAV extends Common {
 				// needs trailing slash in destination
 				$target = rtrim($target, '/') . '/';
 			}
-			$this->withAuthRetry(fn () => $this->client->request(
+			$this->client->request(
 				'COPY',
 				$this->encodePath($source),
 				null,
 				[
 					'Destination' => $this->createBaseUri() . $this->encodePath($target),
 				]
-			));
+			);
 			$this->statCache->clear($target . '/');
 			$this->statCache->set($target, true);
 			$this->removeCachedFile($target);
@@ -972,7 +1007,7 @@ class DAV extends Common {
 	protected function simpleResponse(string $method, string $path, ?string $body, int $expected): bool {
 		$path = $this->cleanPath($path);
 		try {
-			$response = $this->withAuthRetry(fn () => $this->client->request($method, $this->encodePath($path), $body));
+			$response = $this->client->request($method, $this->encodePath($path), $body);
 			return $response['statusCode'] === $expected;
 		} catch (ClientHttpException $e) {
 			if ($e->getHttpStatus() === 404 && $method === 'DELETE') {
@@ -1149,11 +1184,11 @@ class DAV extends Common {
 		$this->init();
 		$directory = $this->cleanPath($directory);
 		try {
-			$responses = $this->withAuthRetry(fn () => $this->client->propFind(
+			$responses = $this->client->propFind(
 				$this->encodePath($directory),
 				$this->getPropfindProperties(),
 				1
-			));
+			);
 
 			array_shift($responses); //the first entry is the current directory
 			if (!$this->statCache->hasKey($directory)) {

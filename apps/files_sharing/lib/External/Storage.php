@@ -138,7 +138,7 @@ class Storage extends DAV implements ISharedStorage, IDisableEncryptionStorage, 
 	}
 
 	/**
-	 * Refresh the bearer token. Extends parent to also persist to database.
+	 * Refresh the access token. Extends parent to also persist to database.
 	 *
 	 * Uses expiry timestamps instead of a boolean flag so that concurrent
 	 * processes can detect that another process already obtained a fresh token
@@ -149,15 +149,16 @@ class Storage extends DAV implements ISharedStorage, IDisableEncryptionStorage, 
 	 * The DB is still consulted during backoff in case a concurrent process
 	 * succeeded; only the outgoing exchange call is suppressed.
 	 *
-	 * @return bool True if token was refreshed (or reused from DB) successfully
+	 * @return string|null the access token (freshly exchanged or reused from
+	 *                     DB), or null if refresh is currently not possible
 	 */
 	#[\Override]
-	protected function refreshBearerToken(): bool {
+	protected function refreshAccessToken(): ?string {
 		$now = time();
 
 		// Fast path: in-memory token is still valid (single-process guard).
-		if ($this->tokenExpiresAt > $now) {
-			return false;
+		if ($this->tokenExpiresAt > $now && !empty($this->password)) {
+			return $this->password;
 		}
 
 		// Slow path: check DB — a concurrent process may have already refreshed.
@@ -168,25 +169,23 @@ class Storage extends DAV implements ISharedStorage, IDisableEncryptionStorage, 
 			if ($dbExpiry !== null && $dbExpiry > $now && $dbToken !== null) {
 				// Another process already refreshed — reuse DB token and reset failure state.
 				$this->password = $dbToken;
+				$this->bearerToken = $dbToken;
 				$this->tokenExpiresAt = $dbExpiry;
 				$this->refreshFailureCount = 0;
 				$this->refreshBackoffUntil = 0;
-				$this->ready = false;
-				$this->client = null;
-				$this->init();
 				$this->logger->debug('Reused access token refreshed by another process', ['app' => 'files_sharing']);
-				return true;
+				return $dbToken;
 			}
 		}
 
 		// Gave up after max attempts: stop trying for the lifetime of this instance.
 		if ($this->refreshFailureCount >= self::REFRESH_MAX_ATTEMPTS) {
-			return false;
+			return null;
 		}
 
 		// Still within the inter-attempt wait: don't hit the endpoint yet.
 		if ($this->refreshBackoffUntil > $now) {
-			return false;
+			return null;
 		}
 
 		// No valid token in DB — perform the exchange ourselves.
@@ -194,18 +193,15 @@ class Storage extends DAV implements ISharedStorage, IDisableEncryptionStorage, 
 			$expiresAt = $now + 3600; // access tokens are valid for 1 hour
 			$newAccessToken = $this->exchangeRefreshToken();
 			$this->password = $newAccessToken;
+			$this->bearerToken = $newAccessToken;
 			$this->tokenExpiresAt = $expiresAt;
 			$this->refreshFailureCount = 0;
 			$this->refreshBackoffUntil = 0;
 
 			$this->manager->updateAccessToken($this->token, $newAccessToken, $expiresAt);
 
-			$this->ready = false;
-			$this->client = null;
-			$this->init();
-
 			$this->logger->debug('Successfully refreshed access token', ['app' => 'files_sharing']);
-			return true;
+			return $newAccessToken;
 		} catch (\Exception $e) {
 			$this->refreshFailureCount++;
 			$this->refreshBackoffUntil = $now + self::REFRESH_BACKOFF_SECONDS;
@@ -215,7 +211,7 @@ class Storage extends DAV implements ISharedStorage, IDisableEncryptionStorage, 
 				'max' => self::REFRESH_MAX_ATTEMPTS,
 				'exception' => $e,
 			]);
-			return false;
+			return null;
 		}
 	}
 

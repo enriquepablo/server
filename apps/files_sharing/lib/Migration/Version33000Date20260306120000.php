@@ -61,10 +61,9 @@ class Version33000Date20260306120000 extends SimpleMigrationStep {
 		}
 
 		if (!$table->hasColumn('refresh_token')) {
-			$source = $table->getColumn('share_token');
-			$table->addColumn('refresh_token', $source->getType()->getName(), [
+			$table->addColumn('refresh_token', Types::STRING, [
 				'notnull' => false,
-				'length' => $source->getLength(),
+				'length' => 64,
 				'default' => null,
 			]);
 			$changed = true;
