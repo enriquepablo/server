@@ -637,7 +637,7 @@ trait Sharing {
 			// A token is either:
 			// - 15 characters from ISecureRandom::CHAR_HUMAN_READABLE (legacy), or
 			// - 32 characters from ISecureRandom::CHAR_ALPHANUMERIC (new OCM tokens)
-			Assert::assertMatchesRegularExpression('/^[a-zA-Z0-9]{15,32}$/', (string)$returnedShare->$field, "Field '$field' is not a token");
+			Assert::assertMatchesRegularExpression('/^([a-zA-Z0-9]{15}|[a-zA-Z0-9]{32})$/', (string)$returnedShare->$field, "Field '$field' is not a token");
 		} elseif (strpos($contentExpected, 'REGEXP ') === 0) {
 			Assert::assertMatchesRegularExpression(substr($contentExpected, strlen('REGEXP ')), (string)$returnedShare->$field, "Field '$field' does not match");
 		} else {
