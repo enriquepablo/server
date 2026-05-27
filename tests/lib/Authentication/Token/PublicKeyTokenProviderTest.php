@@ -448,6 +448,7 @@ class PublicKeyTokenProviderTest extends TestCase {
 
 	public function testGetToken(): void {
 		$token = new PublicKeyToken();
+		$token->setType(IToken::TEMPORARY_TOKEN);
 
 		$this->config->method('getSystemValue')
 			->with('secret')
